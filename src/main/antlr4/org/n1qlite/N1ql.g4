@@ -1,33 +1,42 @@
 // Naming this grammar as 'Parser'
 grammar N1ql;
 
+//   JDW:  Doesn't work yet Test versions require EOF
+testNumber : pNumber EOF;
+testBoolean : pBoolean EOF;
 
 //////// Parser rules ////////
+
+// Numbers
+pNumber : Negative? (Decimal|Scinumber) ;
+////   JDW:  I added Negative? to the front to allow for negative numbers
+
+pBoolean : (True|False);
+
 
 //test
 test : (pString|pNumber|pNull|pBoolean|pObject)+;
 
-// Numbers
-pNumber : (Decimal|SciNumber) ;
-
-pBoolean : (True|False);
-
 // Strings
 ///////////////////////////////// Note to self, ask doug about the ? optional character that makes it so that the string could contain nothing
 pString : (('"' Unicode+? '"')|('""' Unicode+? '""'));
+////// JDW:  You probably want below, I believe they are equivalent, though
+// pString : (('"' Unicode* '"')|('""' Unicode* '""'));
 
 // Adding case insensitive Null characters
 pNull : N U L L;
 
 // Objects
-pObject :'{' avPairs? '}';
-avPairs : (avPair | avPair ',' avPairs);
-avPair : pString ':' (pString|pNumber|pObject);
+pObject :'{' (pAttribVal (',' pAttribVal)* )? '}';
+
+// Attribute value pairs
+pAttribVal : pString ':' pValue;
+
+// Value
+pValue :  pString|pNumber|pObject|pArrays;
 
 // Arrays
-pArrays : '{' () '}';
-
-
+pArrays : '[' (pValue (',' pValue)*)? ']';
 
 
 
@@ -41,7 +50,7 @@ True : T R U E;
 False : F A L S E;
 
 //// Adding scientifically notated numbers
-Scinumber : Decimal (E Negative? Decimal)?;
+Scinumber : Decimal E Negative? Decimal;
 
 //// Adding Decimals
 Decimal : [0-9]+ ('.' [0-9]+)?;
