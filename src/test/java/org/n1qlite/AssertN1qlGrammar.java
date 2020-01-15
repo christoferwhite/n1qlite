@@ -1,9 +1,11 @@
 package org.n1qlite;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
+import org.antlr.v4.runtime.Parser;
 import org.antlr.v4.runtime.ParserRuleContext;
 
 public class AssertN1qlGrammar {
@@ -18,16 +20,17 @@ public class AssertN1qlGrammar {
 		assertEquals( type.getText(), str );
 	}
 	
-	static public void assertTree(ParserRuleContext type) {
+	static public void assertTree(ParserRuleContext type, N1qlParser parser) {
 		new N1qlBaseVisitor<Void>().visit(type);
+		assertTrue("Text found after tree: "+type.getText(), parser.isMatchedEOF());
 	}
 	
-	static public void assertNotTree(ParserRuleContext type) {
-		try {
-			assertTree(type);
-		} catch(Exception e) {
-			return;
-		}
-		throw new RuntimeException("ParseTree created when it should not");
-	}
+//	static public void assertNotTree(ParserRuleContext type) {
+//		try {
+//			assertTree(type);
+//		} catch(Exception e) {
+//			return;
+//		}
+//		throw new RuntimeException("ParseTree created when it should not");
+//	}
 }
