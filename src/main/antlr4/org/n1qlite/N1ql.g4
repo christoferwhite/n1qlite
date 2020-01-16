@@ -11,7 +11,7 @@ testObject: pObject EOF;
 ////Functions
 
 // Object Functions
-funcObj: (PObjValues|PObjLength|PObjNames|PObjPairs) LPar (pObject);
+funcObj: (PObjValues|PObjLength|PObjNames|PObjPairs) LPar (pObject) RPar;
 
 // Number Functions
 
