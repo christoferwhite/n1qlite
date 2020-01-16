@@ -15,7 +15,9 @@ funcObj: (PObjValues|PObjLength|PObjNames|PObjPairs) LPar (pObject) RPar;
 
 // Number Functions
 
-funcNum: (((PAbs|PAcos|PAsin|PAtan|PCeil|PCos|PDeg|Pe|PExp|PLn|PLog|PFloor|PPi|PPower|PRadians|PRandom|DefSign|PSin|PSqrt|PTan) LPar pExp RPar) | (PAtanTwo LPar pExp Comma pExp) | (PTrunc|PRound) LPar pExp (Comma Digits)? RPar );
+funcNum: (((PAbs|PAcos|PAsin|PAtan|PCeil|PCos|PDeg|Pe|PExp|PLn|PLog|PFloor|PPi|PPower|PRadians|PRandom|DefSign|PSin|PSqrt|PTan) LPar pExp RPar) |
+          (PAtanTwo (LPar pExp Comma pExp RPar) |
+          (PTrunc|PRound) LPar pExp (Comma Digits)? RPar ) ;
 
 
 /////// Lower level data 
