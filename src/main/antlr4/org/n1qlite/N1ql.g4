@@ -1,61 +1,100 @@
 // Naming this grammar as 'N1ql'
 grammar N1ql;
 
-//   JDW:  Doesn't work yet Test versions require EOF
+// Tests
 testNumber : pNumber EOF;
 testBoolean : pBoolean EOF;
+testObject: pObject EOF;
 
 //////// Parser rules ////////
 
-// Numbers
-pNumber : Negative? (Decimal|Scinumber) ;
-////   JDW:  I added Negative? to the front to allow for negative numbers
+////Functions
 
-pBoolean : (PTrue|PFalse);
+// Object Functions
+funcObj: (PObjValues|PObjLength|PObjNames|PObjPairs) LPar (pObject);
+
+// Number Functions
+
+funcNum: (((PAbs|PAcos|PAsin|PAtan|PCeil|PCos|PDeg|Pe|PExp|PLn|PLog|PFloor|PPi|PPower|PRadians|PRandom|DefSign|PSin|PSqrt|PTan) LPar pExp RPar) | (PAtanTwo LPar pExp Comma pExp) | (PTrunc|PRound) LPar pExp (Comma Digits)? RPar );
+
+
+/////// Lower level data 
+
+// Mathamatical expression
+pExp: pNumber (POperator pNumber)*;
+
+// Numbers
+pNumber : PSign? (Decimal|Scinumber) ;
+
+// Booleans
+pBoolean : (True|False);
 
 // Strings
-// pString : (('"' Unicode* '"')|('""' Unicode* '""'));
+PString : ((SQuote Unicode* SQuote)|(DQuote Unicode* DQuote));
 
 // Adding case insensitive Null characters
-pNull : PNull;
+pNull : N U L L;
 
 // Objects
-pObject :'{' (pAttribVal (',' pAttribVal)* )? '}';
+pObject :LBrce (pAttribVal (Comma pAttribVal)* )? RBrce;
 
 // Attribute value pairs
-pAttribVal : pString ':' pValue;
+pAttribVal : PString Colon pValue;
 
 // Value
-pValue :  (pString|pNumber|pObject|pArrays);
+pValue :  (PString|pNumber|pObject|pArrays);
 
 // Arrays
-pArrays : '[' (pValue (',' pValue)*)? ']';
+pArrays : LBrac (pValue (Comma pValue)*)?;
+
 
 //////// Lexer rules ////////
 
+//
+
+
 // Adding support for all unicode characters
-Unicode : ('\u0000'..'\uFFFF');
+Unicode: ('\u0000'..'\uFFFF');
 
 // Adding Boolean true false
+True: T R U E;
+False: F A L S E;
 
 // Adding Hex numbers
-Hexdigit : ('0'..'9'|'a'..'f'|'A'..'F') ;
+PHexdigit: ('0'..'9'|'a'..'f'|'A'..'F') ;
 
 //// Adding scientifically notated numbers
-Scinumber : Decimal E Negative? Decimal;
+Scinumber: Decimal E PMinus? Decimal;
 
-//// Adding Decimals
-Decimal : [0-9]+ (PPoint [0-9]+)?;
+//// Adding Decimals 
+Decimal: Digits+ (PDot Digits+)?;
 
-//// Adding Signed notation
-PMinus : '-';
+// Adding Simple Integers
+Digits: [0-9];
 
-PComma: ',';
+// Math Operators
+PSign: (PPlus|PMinus|PDivide|PEquals|PMultiply);
+PMultiply: '*';
+PDivide: '/';
+PEquals: '=';
+PPlus: '+';
+PMinus: '-';
+PDot: '.';
 
-PPoint: '.';
+// Adding Grouping Characters and misc.
+SQuote: '\'';
+DQuote: '"';
+LPar: '(';
+RPar: ')';
+LBrac: '[';
+RBrac: ']';
+LBrce: '{';
+RBrce: '}';
+Comma: ',';
+Colon: ':';
 
-// Lexer Keywords
-PAll: A L L;
+// Keywords 
+PAllDef: A L L;
 PAlter: A L T E R;
 PAnalyze: A N A L Y Z E;
 PAnd: A N D;
@@ -105,7 +144,6 @@ PExecute: E X E C U T E;
 PExists: E X I S T S;
 PExplain: E X P L A I N;
 PFalse: F A L S E;
-False : F A L S E;
 PFetch: F E T C H;
 PFirst: F I R S T;
 PFlatten: F L A T T E N;
@@ -148,12 +186,11 @@ PMapping: M A P P I N G;
 PMatched: M A T C H E D;
 PMaterialized: M A T E R I A L I Z E D;
 PMerge: M E R G E;
-PMinus: M I N U S;
+DefMinus: M I N U S;
 PMissing: M I S S I N G;
 PNamespace: N A M E S P A C E;
 PNest: N E S T;
 PNot: N O T;
-PNull: N U L L;
 PNumber: N U M B E R;
 PObject: O B J E C T;
 POffset: O F F S E T;
@@ -194,13 +231,12 @@ PShow: S H O W;
 PSome: S O M E;
 PStart: S T A R T;
 PStaristics: S T A T I S T I C S;
-PString: S T R I N G;
+DefString: S T R I N G;
 PSystem: S Y S T E M;
 PThen: T H E N;
 PTo: T O;
 PTransaction: T R A N S A C T I O N;
 PTrigger: T R I G G E R;
-PTrue : T R U E;
 PTruncate: T R U N C A T E;
 PUnder: U N D E R;
 PUnion: U N I O N;
@@ -227,9 +263,39 @@ PWithin: W I T H I N;
 PWork: W O R K;
 PXor: X O R;
 
+// Object Functions
+PObjLength: O B J E C T '_' L E N G T H;
+PObjNames: O B J E C T '_' N A M E S;
+PObjPairs: O B J E C T '_' P A I R S;
+PObjValues: O B J E C T '_' V A L U E S;
 
-/* Adding Case Insensitivity if you call the fragments instead of just letters
-for example: 'This Is Case Sensitive' T H I S  I S  C A S E  I N S E N S I T I V E */
+
+// Math Functions
+PAbs: A B S;
+PAcos: A C O S;
+PAsin: A S I N;
+PAtan: A T A N;
+PAtanTwo: A T A N '2';
+PCeil: C E I L;
+PCos: C O S;
+PDeg: D E G R E E S;
+Pe: E;
+PExp: E X P;
+PLn: L N;
+PLog: L O G;
+PFloor: F L O O R;
+PPi: P I;
+PPower: P O W E R;
+PRadians: R A D I A N S;
+PRandom: R A N D O M;
+PRound: R O U N D;
+DefSign: S I G N;
+PSin: S I N;
+PSqrt: S Q R T;
+PTan: T A N;
+PTrunc: T R U N C; 
+
+// Adding Case Insensitivity if you call the fragments instead of just letters
 fragment A : [aA];
 fragment B : [bB];
 fragment C : [cC];
@@ -256,5 +322,9 @@ fragment W : [wW];
 fragment X : [xX];
 fragment Y : [yY];
 fragment Z : [zZ];
+// This creates a  that can can contain any amount of letters, numbers
+// fragment PText : (A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|' ')+;
+
+
 
 WS: [ \r\n\t]+ -> skip;
