@@ -75,7 +75,7 @@ Decimal: Digits+ (PDot Digits+)?;
 Digits: [0-9];
 
 // Math Operators
-PSign: (PPlus|PMinus|PDivide|PEquals|PMultiply);
+POperator: (PPlus|PMinus|PDivide|PEquals|PMultiply);
 PMultiply: '*';
 PDivide: '/';
 PEquals: '=';
