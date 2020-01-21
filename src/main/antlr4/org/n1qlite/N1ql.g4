@@ -5,7 +5,7 @@ grammar N1ql;
 testNumber : pNumber EOF;
 testBoolean : pBoolean EOF;
 testObject: pObject EOF;
-
+testFunc: (funcObj|funcNum);
 //////// Parser rules ////////
 
 ////Functions
@@ -14,16 +14,160 @@ testObject: pObject EOF;
 funcObj: (PObjValues|PObjLength|PObjNames|PObjPairs) LPar (pObject) RPar;
 
 // Number Functions
+funcNum: (((PAbs|PAcos|PAsin|PAtan|PCeil|PCos|PDeg|Pe|PExp|PLn|PLog|PFloor|PPi|PPower|PRadians|PRandom|DefSign|PSin|PSqrt|PTan) LPar exprMth RPar) |
+          (PAtanTwo (LPar exprMth Comma exprMth RPar) |
+          (PTrunc|PRound) LPar exprMth (Comma Digits)? RPar )) ;
 
-funcNum: (((PAbs|PAcos|PAsin|PAtan|PCeil|PCos|PDeg|Pe|PExp|PLn|PLog|PFloor|PPi|PPower|PRadians|PRandom|DefSign|PSin|PSqrt|PTan) LPar pExp RPar) |
-          (PAtanTwo (LPar pExp Comma pExp RPar) |
-          (PTrunc|PRound) LPar pExp (Comma Digits)? RPar )) ;
+///////////// High Level Expressions
+expr: (exprMth|exprCollection);    // This is a filler parse for all the expr types
+resultExpr: expr;
+
+exprMth: pNumber | exprMth POperator exprMth;  // I did have this written as (exprMth|pNumber) (POperator (exprMth|PNumber))? giving me an ambigous left-recursion error
+exprCollection: (exprAny|exprArray|exprFirst|exprEvery|exprExists|exprIn|exprWithin);
+
+//////////// Sub Expressions
+
+//// Collection operators
+exprAny: ANY strex (PIn|PWithin) strex
+    (Comma strex (PIn|PWithin) strex)*
+    PSatisfies strex PEnd;
+exprArray: PArray strex PFor strex (PIn|PWithin) strex
+   (Comma strex (PIn|PWithin) strex)*
+   ((PWhen expr (PAnd expr)?))? PEnd;
+exprFirst: PFirst strex PFor strex (PIn|PWithin) strex
+   (Comma strex (PIn|PWithin) strex)*
+   ((PWhen strex (PAnd strex)?))? PEnd;
+exprEvery: PEvery strex (PIn|PWithin) strex 
+    (Comma strex (PIn|PWithin) strex)* 
+    PSatisfies expr PEnd;
+exprExists: strex PExists strex;
+exprIn: strex PNot? PIn strex;
+exprWithin: strex PNot? PWithin strex;
+
+/////////////// Queries
+
+//// SELECT queries
+select: selectTerm
+    (setOp (PAll)? selectTerm)*
+    (orderByClause|limitClause|offsetClause)?;
+selectTerm: (subselect | LPar select RPar);
+subselect: (selectFrom|fromSelect);
+selectFrom: selectClause
+    (fromClause|letClause|whereClause|groupByClause)?;
+fromSelect: fromClause
+    (letClause)?
+    (whereClause)?
+    (groupByClause)?
+    selectClause;
+setOp: PUnion|PIntersect|PExcept;
+
+// SELECT Clause
+selectClause: PSelect (PAll|PDistinct) (resultExpr (Comma resultExpr)* | (PRaw|PElement|PValue) expr (PAs? Alias)? );
+
+// FROM Clause
+fromClause: PFrom fromTerm;
+fromTerm: (fromKeyspace|fromSubquery|fromGeneric|joinClause|nestClause|unnestClause);
+fromKeyspace: keyspaceRef ((PAs)? Alias)? (useClause)?;
+keyspaceRef: (namespace Colon)? keyspace;
+namespace: id;
+keyspace: id;
+fromSubquery: subqueryExpr PAs? Alias;
+subqueryExpr: LPar select RPar;
+fromGeneric: expr (PAs Alias)?;
+
+// JOIN Clause
+joinClause: fromTerm (ansiJoinClause|lookupJoinClause|indexJoinClause);
+
+// ANSI JOIN
+ansiJoinClause: (ansiJoinType)? PJoin ansiJoinRhs (ansiJoinHints)? ansiJoinPredicate;
+ansiJoinType: (PInner|(PLeft POuter?)|(PRight POuter?));
+ansiJoinRhs: keyspaceRef (PAs? Alias)?;
+ansiJoinHints: (useHashHint|useNlHint|multipleHints);
+useHashHint: PUse useHashTerm;
+useHashTerm: PHash LPar (PBuild|PProbe) RPar;
+useNlHint: PUse useNlTerm;
+useNlTerm: PNl;
+multipleHints: PUse((ansiHintTerms otherHintTerms)|(otherHintTerms ansiHintTerms));
+ansiHintTerms: (useHashTerm | useNlTerm);
+otherHintTerms: (useIndexTerm|useKeysTerm);
+ansiJoinPredicate: POn expr;
+
+//Lookup JOIN
+lookupJoinClause: (lookupJoinType)? PJoin lookupJoinRhs lookupJoinPredicate;
+lookupJoinType: (PInner|(PLeft POuter?));
+lookupJoinRhs: keyspaceRef (PAs? Alias)?;
+lookupJoinPredicate: POn (PPrimary)? PKeys expr;
+
+// Index JOIN
+indexJoinClause: (indexJoinType)? PJoin indexJoinRhs indexJoinPredicate;
+indexJoinType: (PInner|(PLeft POuter?));
+indexJoinRhs: keyspaceRef (PAs? Alias)?;
+indexJoinPredicate: POn (PRIMARY)? PKey expr PFor Alias;
+
+// Nest Clause
+nestClause: fromTerm (ansiNestClause|lookupNestClause|indexNestClause);
+
+// ANSI NEST
+ansiNestClause: (ansiNestType)? PNest ansiNestRhs ansiNestPredicate;
+ansiNestType: (PInner|(PLeft POuter?));
+ansiNestRhs: keyspaceRef (PAs? Alias)?;
+ansiNestPredicate: POn expr;
+
+// Lookup Nest
+lookupNestClause: (lookupNestType)? PNest lookupNestRhs lookupNestPredicate;
+lookupNestType: (PInner|(PLeft POuter?));
+lookupNestRhs: keyspaceRef (PAs? Alias)?;
+lookupNestPredicate: POn PKeys expr;
+indexNestClause: (indexNestType)? NEST indexNestRhs indexNestPredicate;
+indexNestType: (PInner|(PLeft POuter?));
+indexNestRhs: keyspaceRef (PAs? Alias)?;
+indexNestPredicate: POn PKey expr PFor Alias;
+
+// UNNEST Clause
+unnestClause: fromTerm (unnestType)? (PUnnest|PFlatten) expr (PAs? Alias);
+unnestType: (PInner|(PLeft POuter?));
+
+// USE Clause
+useClause: (useKeysClause|useIndexClause);
+useKeysClause: PUse useKeysTerm;
+useKeysTerm: PPrimary? PKeys expr;
+useIndexClause: PUse useIndexTerm;
+useIndexTerm: PIndex LPar indexRef (Comma indexRef)* RPar;
+indexRef: indexName indexUsing?;
+indexName: id;
+indexUsing: PUsing (PView|PGsi);
+
+// LET Clause
+letClause: PLet Alias PEquals expr (Comma Alias PEquals expr)*;
+
+// Where Clause
+whereClause: PWhere cond;
+cond: expr;
+
+// GROUP BY Clause
+groupByClause: (PGroup PBy expr (Comma expr)* lettingClause? havingClause?|lettingClause);
+lettingClause: PLetting Alias PEquals expr (Comma Alias PEquals expr)*;
+havingClause: PHaving cond;
+
+// ORDER BY Clause
+orderByClause: POrder PBy orderingTerm (Comma orderingTerm)*;
+orderingTerm: expr (PAsc|PDesc)?;
+limitClause: PLimit expr;
+offsetClause: POffset expr;
 
 
 /////// Lower level data 
 
-// Mathamatical expression
-pExp: pNumber (POperator pNumber)*;
+// Code-writing optimisation
+strex: (PString|expr); // Common datatype
+
+// Identifiers
+id: (idEsc|idUnEsc);
+idUnEsc: ID; // Unescaped Identifiers
+idEsc: Backtick pJSON Backtick; // Escaped Identifiers
+
+// all JSON supported types
+pJSON: (pNumber|PString|pBoolean|pNull|pObject|pArray);
 
 // Numbers
 pNumber : PSign? (Decimal|Scinumber) ;
@@ -44,16 +188,12 @@ pObject :LBrce (pAttribVal (Comma pAttribVal)* )? RBrce;
 pAttribVal : PString Colon pValue;
 
 // Value
-pValue :  (PString|pNumber|pObject|pArrays);
+pValue :  (PString|pNumber|pObject|pArray);
 
 // Arrays
-pArrays : LBrac (pValue (Comma pValue)*)?;
+pArray : LBrac (pValue (Comma pValue)*)?;
 
-
-//////// Lexer rules ////////
-
-//
-
+//////// Lexer //////// rules ///////////////
 
 // Adding support for all unicode characters
 Unicode: ('\u0000'..'\uFFFF');
@@ -62,26 +202,20 @@ Unicode: ('\u0000'..'\uFFFF');
 True: T R U E;
 False: F A L S E;
 
-// Adding Hex numbers
-PHexdigit: ('0'..'9'|'a'..'f'|'A'..'F') ;
-
-//// Adding scientifically notated numbers
-Scinumber: Decimal E PMinus? Decimal;
-
-//// Adding Decimals 
-Decimal: Digits+ (PDot Digits+)?;
-
-// Adding Simple Integers
-Digits: [0-9];
+//////// Math //////
+PHexdigit: ('0'..'9'|'a'..'f'|'A'..'F') ; // Adding Hex numbers
+Scinumber: Decimal Pe PMinus? Decimal;// Adding scientifically notated numbers
+Decimal: Digits+ (PDot Digits+)?; // Adding Decimals 
+Digits: [0-9]; // Adding Simple Integers
 
 // Math Operators
-POperator: (PPlus|PMinus|PDivide|PEquals|PMultiply);
+PSign: (PPlus|PMinus|PDivide|PEquals|PMultiply);
 PMultiply: '*';
 PDivide: '/';
 PEquals: '=';
 PPlus: '+';
 PMinus: '-';
-PDot: '.';
+PDot: '.'; 
 
 // Adding Grouping Characters and misc.
 SQuote: '\'';
@@ -94,9 +228,21 @@ LBrce: '{';
 RBrce: '}';
 Comma: ',';
 Colon: ':';
+Backtick: '`';
 
-// Keywords 
-PAllDef: A L L;
+//////////// Basic Identifier Support
+ID: [a-zA-Z_] ( [0-9a-zA-Z_$] )*;
+
+/////////// Aliases
+Alias: (PFrom|PLet|PLetting|PSelect|PFor);
+PFrom: F R O M;
+PLet: L E T;
+PLetting: L E T T I N G;
+PSelect: S E L E C T;
+PFor: F O R;
+
+/// Keywords 
+PAll: A L L;
 PAlter: A L T E R;
 PAnalyze: A N A L Y Z E;
 PAnd: A N D;
@@ -149,13 +295,12 @@ PFalse: F A L S E;
 PFetch: F E T C H;
 PFirst: F I R S T;
 PFlatten: F L A T T E N;
-PFor: F O R;
 PForce: F O R C E;
-PFrom: F R O M;
 PFunction: F U N C T I O N;
 PGrant: G R A N T;
 PGroup: G R O U P;
 PGsi: G S I;
+PHash: H A S H;
 PHaving: H A V I N G;
 PIf: I F;
 PIgnore: I G N O R E;
@@ -178,8 +323,6 @@ PKeyspace: K E Y S P A C E;
 PKnown: K N O W N;
 PLast: L A S T;
 PLeft: L E F T;
-PLet: L E T;
-PLetting: L E T T I N G;
 PLike: L I K E;
 PLimit: L I M I T;
 PLsm: L S M;
@@ -192,6 +335,7 @@ DefMinus: M I N U S;
 PMissing: M I S S I N G;
 PNamespace: N A M E S P A C E;
 PNest: N E S T;
+PNl: N L;
 PNot: N O T;
 PNumber: N U M B E R;
 PObject: O B J E C T;
@@ -211,6 +355,7 @@ PPrepare: P R E P A R E;
 PPrimary: P R I M A R Y;
 PPrivate: P R I V A T E;
 PPrivlege: P R I V I L E G E;
+PProbe: P R O B E;
 PProduce: P R O C E D U R E;
 PPublic: P U B L I C;
 PRaw: R A W;
@@ -225,7 +370,6 @@ PRole: R O L E;
 PRollback: R O L L B A C K;
 PSatisfies: S A T I S F I E S;
 PSchema: S C H E M A;
-PSelect: S E L E C T;
 PSelf: S E L F;
 PSemi: S E M I;
 PSet: S E T;
@@ -327,6 +471,5 @@ fragment Z : [zZ];
 // This creates a  that can can contain any amount of letters, numbers
 // fragment PText : (A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|' ')+;
 
-
-
 WS: [ \r\n\t]+ -> skip;
+
