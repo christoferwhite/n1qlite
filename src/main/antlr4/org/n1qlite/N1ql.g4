@@ -1,475 +1,323 @@
 // Naming this grammar as 'N1ql'
 grammar N1ql;
+// Parser Rules
 
-// Tests
-testNumber : pNumber EOF;
-testBoolean : pBoolean EOF;
-testObject: pObject EOF;
-testFunc: (funcObj|funcNum);
-//////// Parser rules ////////
+  // High level Phrase reconition
+dropPrimaryIndex:       'DROP' 'PRIMARY' 'INDEX' 'ON' namedKeyspaceRef indexUsing?;
+lookupJoinPredicate:    'ON' 'PRIMARY'? 'KEYS' expr;
+namedBucketRef:         (poolName ':')? bucketName;
+viewIndexStmt:          (createViewIndex|dropViewIndex);
+rankFunctions:          ('RANK'|'DENSE_RANK'|'PERCENT_RANK'|'CUME_DIST');
+pathFor:                'FOR' (variable 'IN' path (',' variable 'IN' path)*) ('WHEN' cond) 'END';
+nullsTreatment:         ('RESPECT'|'IGNORE') 'NULLS';
+nthvalFrom:             'FROM' ('FIRST'|'LAST');
+rangeXform:             ('ARRAY'|'FIRST'|'OBJECT' nameExpr ':') expr 'FOR' ((var ('WITHIN'|('IN' (var ',' expr 'IN'))))|(nameVar ':' var ('IN'|'WITHIN'))) expr ('WHEN' cond)? 'END';
 
-////Functions
+  // Clauses
+fromClause:             'FROM' fromTerm;
+groupByClause:          (lettingClause|('GROUP' 'BY' (expr (',' expr)*) lettingClause? havingClause?));
+havingClause:           'HAVING' cond;
+joinClause:             joinType? 'JOIN' fromKeyspace ('AS'? alias)? joinPredicate;
+  joinPredicate:          (lookupJoinPredicate|indexJoinPredicate);
+  joinType:               ('INNER'|('LEFT' 'OUTER'?));
+keyClause:              'PRIMARY'? 'KEY' expr; // This ones diagram is bugged i think
+keysClause:             'KEYS' expr;
+letClause:              'LET' (alias '=' expr (',' alias '=' expr)*);
+lettingClause:          'LETTING' (alias '=' expr (',' alias '=' expr)*);
+limitClause:            'LIMIT' expr;
+nestClause:             joinType? 'NEST' fromKeyspace ('AS'? alias)? joinPredicate;
+offsetClause:           'OFFSET' expr;
+onKeysClause:           'ON' 'PRIMARY'? 'KEYS' expr;
+orderByClause:          'ORDER' 'BY' (orderingTerm (',' orderingTerm));
+  orderingTerm:         expr ('ASC'|'DESC')? ('NULLS' ('FIRST'|'LAST'))?;
+returningClause:        'RETURNING' ((resultExpr (',' resultExpr)*)|(('RAW'|'ELEMENT'|'VALUE') expr));
+selectClause:           'SELECT' ('ALL'|'DISTINCT')? ((resultExpr(',' resultExpr)*)|(('RAW'|'ELEMENT'|'VALUE') expr ('AS'? alias)?));
+setClause:              'SET' (path '=' expr updateFor? (',' path '=' expr updateFor?)*);
+  setOp:                ('UNION'|'INTERSECT'|'EXCEPT');
+  
+unsetClause:            'UNSET' ( path updateFor? (',' path updateFor?)*);
+useClause:              (useKeysClause|useIndexClause);
+  useIndexClause:       'USE' 'INDEX' '(' (indexRef ('.' indexRef)*) ')';
+  useKeysClause:        'USE' 'PRIMARY'? 'KEYS' expr;
+valueClause:            ('VALUE'|'VALUES') expr;
+valuesClause:           'VALUES' ('(' expr ',' expr ')' ('VALUES'? ',' '(' expr ',' expr ')')*);
+whereClause:            'WHERE' cond;
 
-// Object Functions
-funcObj: (PObjValues|PObjLength|PObjNames|PObjPairs) LPar (pObject) RPar;
+  // Expressions
 
-// Number Functions
-funcNum: (((PAbs|PAcos|PAsin|PAtan|PCeil|PCos|PDeg|Pe|PExp|PLn|PLog|PFloor|PPi|PPower|PRadians|PRandom|DefSign|PSin|PSqrt|PTan) LPar exprMth RPar) |
-          (PAtanTwo (LPar exprMth Comma exprMth RPar) |
-          (PTrunc|PRound) LPar exprMth (Comma Digits)? RPar )) ;
+    // Expression parsing
+mexpr:                  (expr|rcvexpr|first); // might be left recursion error
+lexpr:                  (mexpr|prepare|cursor);
+rcvexpr:                '<-' mexpr;  // might be left recursion error
 
-///////////// High Level Expressions
-expr: (exprMth|exprCollection);    // This is a filler parse for all the expr types
-resultExpr: expr;
+    // Basic Expressions
+expr:                   literal
+                          |identifier
+                          |nestedExpr
+                          |caseExpr
+                          |logicalTerm
+                          |comparisonTerm
+                          |arithmeticTerm
+                          |concatenationTerm
+                          |windowFunction
+                          |functionCall
+                          |subqueryExpr
+                          |collectionExpr
+                          |constructionExpr
+                          |'(' expr ')';
+      
+      // CASE Expreressions
+caseExpr:               (simpleCaseExpr|searchedCaseExpr);
+fullCase:               'CASE'('WHEN' mcond 'THEN' block)* ('ELSE' block)? 'END';
+searchedCase:           'CASE' mexpr ('WHEN' mexpr 'THEN' block)* ('ELSE' block)? 'END';
+searchedCaseExpr:       'CASE' ('WHEN' cond 'THEN' expr)* ('ELSE' expr)? ;
+simpleCaseExpr:         'CASE' expr ('WHEN' expr 'THEN' expr)* ('ELSE' expr)? 'END';
 
-exprMth: pNumber | exprMth POperator exprMth;  // I did have this written as (exprMth|pNumber) (POperator (exprMth|PNumber))? giving me an ambigous left-recursion error
-exprCollection: (exprAny|exprArray|exprFirst|exprEvery|exprExists|exprIn|exprWithin);
+      // COLLECTION Expreressions
+collectionCond:         ('ANY'|'SOME'|'EVERY') (variable ('IN'|'WITHIN') expr) (variable ('IN'|'WITHIN') expr)* ('SATISFIES' cond) 'END';
+collectionExpr:         (existsExpr|inExpr|withinExpr|rangeCond|rangeXform);
 
-//////////// Sub Expressions
-
-//// Collection operators
-exprAny: ANY strex (PIn|PWithin) strex
-    (Comma strex (PIn|PWithin) strex)*
-    PSatisfies strex PEnd;
-exprArray: PArray strex PFor strex (PIn|PWithin) strex
-   (Comma strex (PIn|PWithin) strex)*
-   ((PWhen expr (PAnd expr)?))? PEnd;
-exprFirst: PFirst strex PFor strex (PIn|PWithin) strex
-   (Comma strex (PIn|PWithin) strex)*
-   ((PWhen strex (PAnd strex)?))? PEnd;
-exprEvery: PEvery strex (PIn|PWithin) strex 
-    (Comma strex (PIn|PWithin) strex)* 
-    PSatisfies expr PEnd;
-exprExists: strex PExists strex;
-exprIn: strex PNot? PIn strex;
-exprWithin: strex PNot? PWithin strex;
-
-/////////////// Queries
-
-//// SELECT queries
-select: selectTerm
-    (setOp (PAll)? selectTerm)*
-    (orderByClause|limitClause|offsetClause)?;
-selectTerm: (subselect | LPar select RPar);
-subselect: (selectFrom|fromSelect);
-selectFrom: selectClause
-    (fromClause|letClause|whereClause|groupByClause)?;
-fromSelect: fromClause
-    (letClause)?
-    (whereClause)?
-    (groupByClause)?
-    selectClause;
-setOp: PUnion|PIntersect|PExcept;
-
-// SELECT Clause
-selectClause: PSelect (PAll|PDistinct) (resultExpr (Comma resultExpr)* | (PRaw|PElement|PValue) expr (PAs? Alias)? );
-
-// FROM Clause
-fromClause: PFrom fromTerm;
-fromTerm: (fromKeyspace|fromSubquery|fromGeneric|joinClause|nestClause|unnestClause);
-fromKeyspace: keyspaceRef ((PAs)? Alias)? (useClause)?;
-keyspaceRef: (namespace Colon)? keyspace;
-namespace: id;
-keyspace: id;
-fromSubquery: subqueryExpr PAs? Alias;
-subqueryExpr: LPar select RPar;
-fromGeneric: expr (PAs Alias)?;
-
-// JOIN Clause
-joinClause: fromTerm (ansiJoinClause|lookupJoinClause|indexJoinClause);
-
-// ANSI JOIN
-ansiJoinClause: (ansiJoinType)? PJoin ansiJoinRhs (ansiJoinHints)? ansiJoinPredicate;
-ansiJoinType: (PInner|(PLeft POuter?)|(PRight POuter?));
-ansiJoinRhs: keyspaceRef (PAs? Alias)?;
-ansiJoinHints: (useHashHint|useNlHint|multipleHints);
-useHashHint: PUse useHashTerm;
-useHashTerm: PHash LPar (PBuild|PProbe) RPar;
-useNlHint: PUse useNlTerm;
-useNlTerm: PNl;
-multipleHints: PUse((ansiHintTerms otherHintTerms)|(otherHintTerms ansiHintTerms));
-ansiHintTerms: (useHashTerm | useNlTerm);
-otherHintTerms: (useIndexTerm|useKeysTerm);
-ansiJoinPredicate: POn expr;
-
-//Lookup JOIN
-lookupJoinClause: (lookupJoinType)? PJoin lookupJoinRhs lookupJoinPredicate;
-lookupJoinType: (PInner|(PLeft POuter?));
-lookupJoinRhs: keyspaceRef (PAs? Alias)?;
-lookupJoinPredicate: POn (PPrimary)? PKeys expr;
-
-// Index JOIN
-indexJoinClause: (indexJoinType)? PJoin indexJoinRhs indexJoinPredicate;
-indexJoinType: (PInner|(PLeft POuter?));
-indexJoinRhs: keyspaceRef (PAs? Alias)?;
-indexJoinPredicate: POn (PRIMARY)? PKey expr PFor Alias;
-
-// Nest Clause
-nestClause: fromTerm (ansiNestClause|lookupNestClause|indexNestClause);
-
-// ANSI NEST
-ansiNestClause: (ansiNestType)? PNest ansiNestRhs ansiNestPredicate;
-ansiNestType: (PInner|(PLeft POuter?));
-ansiNestRhs: keyspaceRef (PAs? Alias)?;
-ansiNestPredicate: POn expr;
-
-// Lookup Nest
-lookupNestClause: (lookupNestType)? PNest lookupNestRhs lookupNestPredicate;
-lookupNestType: (PInner|(PLeft POuter?));
-lookupNestRhs: keyspaceRef (PAs? Alias)?;
-lookupNestPredicate: POn PKeys expr;
-indexNestClause: (indexNestType)? NEST indexNestRhs indexNestPredicate;
-indexNestType: (PInner|(PLeft POuter?));
-indexNestRhs: keyspaceRef (PAs? Alias)?;
-indexNestPredicate: POn PKey expr PFor Alias;
-
-// UNNEST Clause
-unnestClause: fromTerm (unnestType)? (PUnnest|PFlatten) expr (PAs? Alias);
-unnestType: (PInner|(PLeft POuter?));
-
-// USE Clause
-useClause: (useKeysClause|useIndexClause);
-useKeysClause: PUse useKeysTerm;
-useKeysTerm: PPrimary? PKeys expr;
-useIndexClause: PUse useIndexTerm;
-useIndexTerm: PIndex LPar indexRef (Comma indexRef)* RPar;
-indexRef: indexName indexUsing?;
-indexName: id;
-indexUsing: PUsing (PView|PGsi);
-
-// LET Clause
-letClause: PLet Alias PEquals expr (Comma Alias PEquals expr)*;
-
-// Where Clause
-whereClause: PWhere cond;
-cond: expr;
-
-// GROUP BY Clause
-groupByClause: (PGroup PBy expr (Comma expr)* lettingClause? havingClause?|lettingClause);
-lettingClause: PLetting Alias PEquals expr (Comma Alias PEquals expr)*;
-havingClause: PHaving cond;
-
-// ORDER BY Clause
-orderByClause: POrder PBy orderingTerm (Comma orderingTerm)*;
-orderingTerm: expr (PAsc|PDesc)?;
-limitClause: PLimit expr;
-offsetClause: POffset expr;
+      // MISC Expressions
+mapExpr:                'MAP' (variable (',' variable)*) 'IN' (expr (',' expr)*) ('TO' expr)? ('WHEN' cond)? 'END';
+nameExpr:               expr;
+inExpr:                 expr 'NOT'? 'IN' expr;
+arrayExpr:              'ARRAY' expr 'FOR' (variable('IN'|'WITHIN') expr) (',' variable('IN'|'WITHIN'))? ('WHEN' cond)? 'END';
+fieldExpr:              expr '.' (identifier|(escapedIdentifier ('|')?));
+firstExpr:              'FIRST' expr 'FOR'
+                          (variable ('IN'|WITHIN) expr)
+                          (',' variable ('IN'|WITHIN) expr)?
+                          ('WHEN' cond)? 'END';
+constructionExpr:       (object|array);
+collectionExpr:         (existsExpr|inExpr|withinExpr|rangeCond|rangeXform);
+existsExpr:             'EXISTS' expr;
+elementExpr:            expr '[' expr ']';
+existentialExpr:        'EXISTS' '(' select ')';
+existsExpr:             'EXISTS' expr;
+nestedExpr:             (fieldExpr|elementExpr|sliceExpr);
+reduceExpr:             'REDUCE' (variable (',' variable)*) 'IN' (expr (',' expr)*) 'TO' expr ('WHEN' cond)? 'END';
+resultExpr:             (((path '.')? '*')|(expr('AS'? alias)?));
+sliceExpr:              expr '[' expr ':' expr? ']';
+subqueryExpr:           '(' select ')';
+withinExpr:             expr 'NOT'? 'WITHIN' expr;
 
 
-/////// Lower level data 
+  // Functions
+keyspaceRef:            (namespace ';')? keyspace ('AS'? alias)?;
+namedKeyspaceRef:       (namespace ':')? keyspace;
+  namespace:              identifier;
+  keyspace:               identifier;
 
-// Code-writing optimisation
-strex: (PString|expr); // Common datatype
+    // Higher Level Functions
+aggregateFunctions:     ('ARRAY_AGG'|'AVG'|'COUNT'|'COUNTIN'|'MAX'|'MEAN'|'MEDIAN'|'MIN'|'SUM'|'STDDEV_SAMP'|'STDDEV_POP'|'VARIENCE'|'VAR_SAMP'|'VAR_POP');
+aggregateQualifier:     ('ALL'|'DISTINCT');
 
-// Identifiers
-id: (idEsc|idUnEsc);
-idUnEsc: ID; // Unescaped Identifiers
-idEsc: Backtick pJSON Backtick; // Escaped Identifiers
-
-// all JSON supported types
-pJSON: (pNumber|PString|pBoolean|pNull|pObject|pArray);
-
-// Numbers
-pNumber : PSign? (Decimal|Scinumber) ;
-
-// Booleans
-pBoolean : (True|False);
-
-// Strings
-PString : ((SQuote Unicode* SQuote)|(DQuote Unicode* DQuote));
-
-// Adding case insensitive Null characters
-pNull : N U L L;
-
-// Objects
-pObject :LBrce (pAttribVal (Comma pAttribVal)* )? RBrce;
-
-// Attribute value pairs
-pAttribVal : PString Colon pValue;
-
-// Value
-pValue :  (PString|pNumber|pObject|pArray);
-
-// Arrays
-pArray : LBrac (pValue (Comma pValue)*)?;
-
-//////// Lexer //////// rules ///////////////
-
-// Adding support for all unicode characters
-Unicode: ('\u0000'..'\uFFFF');
-
-// Adding Boolean true false
-True: T R U E;
-False: F A L S E;
-
-//////// Math //////
-PHexdigit: ('0'..'9'|'a'..'f'|'A'..'F') ; // Adding Hex numbers
-Scinumber: Decimal Pe PMinus? Decimal;// Adding scientifically notated numbers
-Decimal: Digits+ (PDot Digits+)?; // Adding Decimals 
-Digits: [0-9]; // Adding Simple Integers
-
-// Math Operators
-PSign: (PPlus|PMinus|PDivide|PEquals|PMultiply);
-PMultiply: '*';
-PDivide: '/';
-PEquals: '=';
-PPlus: '+';
-PMinus: '-';
-PDot: '.'; 
-
-// Adding Grouping Characters and misc.
-SQuote: '\'';
-DQuote: '"';
-LPar: '(';
-RPar: ')';
-LBrac: '[';
-RBrac: ']';
-LBrce: '{';
-RBrce: '}';
-Comma: ',';
-Colon: ':';
-Backtick: '`';
-
-//////////// Basic Identifier Support
-ID: [a-zA-Z_] ( [0-9a-zA-Z_$] )*;
-
-/////////// Aliases
-Alias: (PFrom|PLet|PLetting|PSelect|PFor);
-PFrom: F R O M;
-PLet: L E T;
-PLetting: L E T T I N G;
-PSelect: S E L E C T;
-PFor: F O R;
-
-/// Keywords 
-PAll: A L L;
-PAlter: A L T E R;
-PAnalyze: A N A L Y Z E;
-PAnd: A N D;
-PAny: A N Y;
-PArray: A R R A Y;
-PAs: A S;
-PAsc: A S C;
-PBegin: B E G I N;
-PBetween: B E T W E E N;
-PBinary: B I N A R Y;
-PBreak: B R E A K;
-PBucket: B U C K E T;
-PBuild: B U I L D;
-PBy: B Y;
-PCall: C A L L;
-PCase: C A S E;
-PCast: C A S T;
-PCluster: C L U S T E R;
-PCollate: C O L L A T E;
-PCollection: C O L L E C T I O N;
-PCommit: C O M M I T;
-PConnect: C O N N E C T;
-PContinue: C O N T I N U E;
-PCorrelate: C O R R E L A T E;
-PCover: C O V E R;
-PCreate: C R E A T E;
-PDatabase: D A T A B A S E;
-PDataset: D A T A S E T;
-PDatastore: D A T A S T O R E;
-PDeclare: D E C L A R E;
-PDecrement: D E C R E M E N T;
-PDelete: D E L E T E;
-PDerived: D E R I V E D;
-PDesc: D E S C;
-PDescribe: D E S C R I B E;
-PDistinct: D I S T I N C T;
-PDo: D O;
-PDrop: D R O P;
-PEach: E A C H;
-PElement: E L E M E N T;
-PElse: E L S E;
-PEnd: E N D;
-PEvery: E V E R Y;
-PExcept: E X C E P T;
-PExclude: E X C L U D E;
-PExecute: E X E C U T E;
-PExists: E X I S T S;
-PExplain: E X P L A I N;
-PFalse: F A L S E;
-PFetch: F E T C H;
-PFirst: F I R S T;
-PFlatten: F L A T T E N;
-PForce: F O R C E;
-PFunction: F U N C T I O N;
-PGrant: G R A N T;
-PGroup: G R O U P;
-PGsi: G S I;
-PHash: H A S H;
-PHaving: H A V I N G;
-PIf: I F;
-PIgnore: I G N O R E;
-PIlike: I L I K E;
-PIn: I N;
-PInclude: I N C L U D E;
-PIncrement: I N C R E M E N T;
-PIndex: I N D E X;
-PInfer: I N F E R;
-PInline: I N L I N E;
-PInner: I N N E R;
-PInsert: I N S E R T;
-PIntersect: I N T E R S E C T;
-PInto: I N T O;
-PIs: I S;
-PJoin: J O I N;
-PKey: K E Y;
-PKeys: K E Y S;
-PKeyspace: K E Y S P A C E;
-PKnown: K N O W N;
-PLast: L A S T;
-PLeft: L E F T;
-PLike: L I K E;
-PLimit: L I M I T;
-PLsm: L S M;
-PMap: M A P;
-PMapping: M A P P I N G;
-PMatched: M A T C H E D;
-PMaterialized: M A T E R I A L I Z E D;
-PMerge: M E R G E;
-DefMinus: M I N U S;
-PMissing: M I S S I N G;
-PNamespace: N A M E S P A C E;
-PNest: N E S T;
-PNl: N L;
-PNot: N O T;
-PNumber: N U M B E R;
-PObject: O B J E C T;
-POffset: O F F S E T;
-POn: O N;
-POption: O P T I O N;
-POr: O R;
-POrder: O R D E R;
-POuter: O U T E R;
-POver: O V E R;
-PParse: P A R S E;
-PPartition: P A R T I T I O N;
-PPassword: P A S S W O R D;
-PPath: P A T H;
-PPool: P O O L;
-PPrepare: P R E P A R E;
-PPrimary: P R I M A R Y;
-PPrivate: P R I V A T E;
-PPrivlege: P R I V I L E G E;
-PProbe: P R O B E;
-PProduce: P R O C E D U R E;
-PPublic: P U B L I C;
-PRaw: R A W;
-PRealm: R E A L M;
-PReduce: R E D U C E;
-PRename: R E N A M E;
-PReturn: R E T U R N;
-PReturning: R E T U R N I N G;
-PRevoke: R E V O K E;
-PRight: R I G H T;
-PRole: R O L E;
-PRollback: R O L L B A C K;
-PSatisfies: S A T I S F I E S;
-PSchema: S C H E M A;
-PSelf: S E L F;
-PSemi: S E M I;
-PSet: S E T;
-PShow: S H O W;
-PSome: S O M E;
-PStart: S T A R T;
-PStaristics: S T A T I S T I C S;
-DefString: S T R I N G;
-PSystem: S Y S T E M;
-PThen: T H E N;
-PTo: T O;
-PTransaction: T R A N S A C T I O N;
-PTrigger: T R I G G E R;
-PTruncate: T R U N C A T E;
-PUnder: U N D E R;
-PUnion: U N I O N;
-PUnique: U N I Q U E;
-PUnknown: U N K N O W N;
-PUnnest: U N N E S T;
-PUnset: U N S E T;
-PUpdate: U P D A T E;
-pUpsert: U P S E R T;
-PUse: U S E;
-PUser: U S E R;
-PUsing: U S I N G;
-PValidate: V A L I D A T E;
-PValue: V A L U E;
-PValued: V A L U E D;
-PValues: V A L U E S;
-PVia: V I A;
-PView: V I E W;
-PWhen: W H E N;
-PWhere: W H E R E;
-PWhile: W H I L E;
-PWith: W I T H;
-PWithin: W I T H I N;
-PWork: W O R K;
-PXor: X O R;
-
-// Object Functions
-PObjLength: O B J E C T '_' L E N G T H;
-PObjNames: O B J E C T '_' N A M E S;
-PObjPairs: O B J E C T '_' P A I R S;
-PObjValues: O B J E C T '_' V A L U E S;
+    // Window Functions
 
 
-// Math Functions
-PAbs: A B S;
-PAcos: A C O S;
-PAsin: A S I N;
-PAtan: A T A N;
-PAtanTwo: A T A N '2';
-PCeil: C E I L;
-PCos: C O S;
-PDeg: D E G R E E S;
-Pe: E;
-PExp: E X P;
-PLn: L N;
-PLog: L O G;
-PFloor: F L O O R;
-PPi: P I;
-PPower: P O W E R;
-PRadians: R A D I A N S;
-PRandom: R A N D O M;
-PRound: R O U N D;
-DefSign: S I G N;
-PSin: S I N;
-PSqrt: S Q R T;
-PTan: T A N;
-PTrunc: T R U N C; 
+    // Control Functions
+ctrl:                   (if|case|loop|break|continue|pass|return|deliver); // defer was in here, but there was no parser diagrams
 
-// Adding Case Insensitivity if you call the fragments instead of just letters
-fragment A : [aA];
-fragment B : [bB];
-fragment C : [cC];
-fragment D : [dD];
-fragment E : [eE];
-fragment F : [fF];
-fragment G : [gG];
-fragment H : [hH];
-fragment I : [iI];
-fragment J : [jJ];
-fragment K : [kK];
-fragment L : [lL];
-fragment M : [mM];
-fragment N : [nN];
-fragment O : [oO];
-fragment P : [pP];
-fragment Q : [qQ];
-fragment R : [rR];
-fragment S : [sS];
-fragment T : [tT];
-fragment U : [uU];
-fragment V : [vV];
-fragment W : [wW];
-fragment X : [xX];
-fragment Y : [yY];
-fragment Z : [zZ];
-// This creates a  that can can contain any amount of letters, numbers
-// fragment PText : (A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|' ')+;
+if:                     mcond 'THEN' block ('ELSEIF' mcond 'THEN' block)* ('ELSE' block)? 'END';
+case:                   (fullCase|searchedCase);
+case:                   (fullCase|searchedCase);
+concatenationTerm:      expr '||' expr;
+collectionPredicate:    ('ANY'|'ALL') cond 'OVER' expr ('AS'? alias)? (('OVER' subpath ('AS' alias)?)*)?; 
+collectionXform:        (arrayExpr|firstExpr);
+loop:                   label? (while|for);
+break:                  'BREAK' labelName?;
+continue:               'CONTINUE' labelName?;
+comprehension:          '[' expr 'OVER' expr ('AS'? alias)? ('IF' expr)? (('OVER' subpath ('AS' alias)? ('IF' expr)?)*)? ']';
+pass:                   'PASS';
+return:                 'RETURN' (lexpr (',' lexpr));
+deliver:                'DELIVER' ('WHEN' commop 'THEN' block)* ('ELSE' block)? 'END';
+// defer: ;                /////////////////////////////////// this is not in the database
+ddlStmt:                indexStmt;
+dmlStmt:                (insert|upsert|delete|update|merge);
+for:                    (forIter|forMap);
+  forIter:                'FOR' var 'IN' (mexper|cursor) 'DO' block 'END';
+  forMap:                 'FOR' keyVar ',' valVar 'IN' mexpr 'DO' block 'END';
+delete:                 'DELETE' 'FROM' keyspaceRef useClause? whereClause? limitClause? returningClause?;
+execute:                'EXECUTE' mexpr ('USING' mexpr (',' mexpr)*)?;
+first:                  'FIRST' cursor;
+cursor:                 (query|execute);
+dataset:                path ('AS'? alias)? (('OVER' subpath ('AS'? alias)?)*)?;
+start:                  'START' 'TRANSACTION';
+while:                  'WHILE' mcond 'DO' block 'END';
+query:                  (select|dmlStmt);
+  subquery:               select;
+label:                  labelName ':';
+  lableName:            identifier;
+function:               functionName '(' ('DISTINCT'? (((path '.')? '*')|(expr (',' expr))))?;
+  functionName:         identifier;
+  functionCall:         functionName '(' ('*'|((expr (',' expr)*)|'DISTINCT')?)?;
+fullpath:               (poolName ':')? path;
+commop:                 (sendop|rcvop);
+  sendop:                 var '<-' mexper;
+  rcvop:                  var (',' var)? (':='|'::=') rcvexpr;
+rollback:               'ROLLBACK' 'WORK'?;
+truncate:               'TRUNCATE' keyspaceRef;
+unset:                  'UNSET' mexpr '.' subpath;
+update:                 'UPDATE' keyspaceRef useClause? setClause? unsetClause? whereClause? limitClause? returningClause?;
+updateFor:              ('FOR' (nameVar ':')? var ('IN'|'WITHIN') path (',' (nameVar ':')? var ('IN'|'WITHIN') path)*)* ('WHEN' cond)? 'END';
+upsert:                 'UPSERT' 'INTO' keyspaceRef (insertValues|insertSelect) returningClause?;
+using:                  'USING' ('VIEW'|'GSI');
+prepare:                'PREPARE' (query|mexpr) ('USING' (var (',' var)*))?;
+partition:              'PARTION' 'BY' expr;
+pair:                   nameExpr ':' expr;
 
-WS: [ \r\n\t]+ -> skip;
+  // N1ql parsing commands
+assign:                 (var(',' var)*) ':=' (lexpr(',' lexpr)*);
+init:                   (var (',' var)*) '::=' (lexpr (',' lexpr)*);
+decl:                   'DECLARE' (var(',' var)*) (':=' (lexpr (',' lexpr)*))?;
+
+  // Basic Parses
+
+    // PATH
+path:                   identifier ('[' expr ']')* ('.' path)?; // This loop ('[' expr ']')* is questionable because there is no seperators like commas and stuff
+subpath:                identifier ('[' int ']')? ('.' subpath);
+
+    // Logic Syntax
+logicalTerm:            ((cond ('AND'|'OR'))|'NOT') cond;
+    
+    // Conditions
+cond:                   expr;
+mcond:                  mexpr;
+
+    //Begin
+begin:                  'BEGIN' block 'END';
+
+    // Block  
+block:                  terminatedStmt;
+terminatedStmt:         stmt (';'|newline);
+transactionStmt:        (start|commit|rollback);
+stmt:                   (begin|ded|init|assign|unset|sendop|ctrl|lexpr);
+
+    // From
+fromKeyspace:           (namespace ':')? keyspace;
+fromPath:               (namespace ':')? path;
+fromSelectCore:         fromClause letClause? whereClause? groupByClause? selectClause;
+fromSelect:             fromClause letClause? whereClause? groupByClause? selectClause;
+fromTerm:               ((fromKeyspace ('AS'? alias)? useClause?)|('(' select ')' 'AS'? alias)|(expr ('AS' alias)?)|(fromTerm (joinClause|nestClause|unnestClause)));
+
+    // Select
+select:                 (selectTerm ('ALL'? setOp selectTerm)*) orderByClause? limitClause? offsetClause?;
+subselect:              (selectFrom|fromSelect);
+selectCore:             (selectFromCore|fromSelectCore);
+selectFor:              select 'FOR' ('UPDATE'|'SHARE') ('OF' (keyspaceRef (',' keyspaceRef)*))?;
+selectFromCore:         selectClause fromClause? letClause? whereClause? groupByClause?;
+selectFrom:             selectClause fromClause? letClause? whereClause? groupByClause?; // BAD PARSING, replace all the selectfromcore with selectFrom
+selectTerm:             (subselect|'(' select ')');
+
+    // Insert
+insert:                 'INSERT' 'INTO' keyspaceRef (insertValues|insertSelect) returningClause?;
+insertSelect:           '(' 'PRIMARY' 'KEY' expr (',' 'VALUE' expr)? ')' select;
+insertValues:           ('(' 'PRIMARY'? 'KEY' ',' 'VALUE' ')')? valuesClause;
+
+    // Window
+windowClause:           windowPartitionClause? (windowOrderClause (windowFrameClause (windowFrameExclusion)?)?)?;
+windowFrameClause:      ('ROWS'|'RANGE'|'GROUPS') (('UNBOUNDED' 'PRECEDING')|('CURRENT' 'ROW')|(valexpr 'FOLLOWING')|('BETWEEN'(('UNBOUNDED' 'PRECEDING')|('CURRENT' 'ROW')|(valexpr 'FOLLOWING')|('BETWEEN' (('UNBOUNDED' 'PRECEDING')|('CURRENT' 'ROW')|(valexpr ('PRECEDING'|'FOLLOWING'))) 'AND' (('UNBOUNDED' 'FOLLOWING')|('CURRENT' 'ROW')|(valexpr ('PRECEDING'|'FOLLOWING')))))));
+windowFrameExclusion:   'EXECUTE' ('CURRENT' 'ROW'|'GROUP'|'TIES'|'NO' 'OTHERS');
+windowFunctionArguments:(aggregateQualifier? expr (',' expr (',' expr)?)?)?;
+windowFunctionOptions:  nthvalFrom? nullsTreatment?;
+windowFunctionType:     (aggregateFunctions|rankFunctions|'ROW_NUMBER'|'RATIO_TO_REPORT'|'NTILE'|'LAG'|'LEAD'|'FIRST_VALUE'|'LAST_VALUE'|'NTH_VALUE');
+windowFunction:         windowFunctionType '(' windowFunctionArguments ')' windowFunctionOptions? 'OVER' '(' windowClause ')';
+windowOrderClause:      'ORDER' 'BY' (orderingTerm(',' orderingTerm)*);
+windowOrderTerm:        ('ASC'|'DESC')? ('NULLS' ('FIRST'|'LAST'))?;
+windowPartitionClause:  'PARTION' 'BY' (expr (',' expr));
+
+    // Bucket
+bucketName:             identifier;
+bucketRef:              (poolName ':')? bucketName ('AS'? alias)?;
+bucketSpec:             (poolName ':')? bucketName;
+bucketStmt:             alterBucket;
+alterBucket:            'ALTER' 'BUCKET' (poolName ':')? bucketName 'RENAME' subpath 'TO' identifier;
+
+    // Index
+alterIndex:             'ALTER' 'INDEX' namedBucketRef '.' indexName 'RENAME' 'TO' indexName;
+buildIndexes:           'BUILD' 'INDEXES' 'ON' namedKeyspaceRef '(' indexName (',' indexName) ')' indexUsing?;
+createIndex:            'CREATE' 'INDEX' indexName 'ON' namedKeyspaceRef '(' expr (',' expr)* ')' whereClause? indexUsing? indexWith?;
+createPrimaryIndex:     'CREATE' 'PRIMARY' 'INDEX' indexName? 'ON' namedKeyspaceRef indexUsing? indexWith?;
+createViewIndex:        'CREATE' 'VIEW' 'INDEX' identifier 'ON' (poolName ':')? bucketName '(' subpath (',' subpath)* ')';
+dropIndex:              'DROP' 'INDEX' namedKeyspaceRef '.' indexName indexUsing?;
+dropViewIndex:          'DROP' 'VIEW' 'INDEX' (poolName ':')? bucketName '.' identifier;
+indexJoinPredicate:     'ON' 'PRIMARY'? 'KEY' expr 'FOR' alias;
+
+    // Merge
+merge:                  'MERGE' 'INTO' keyspaceRef 'USING' mergeSource 'ON' keyClause mergeActions limitClause? returningClause?;
+mergeActions:           mergeUpdate? mergeDelete? mergeInsert?;
+mergeDelete:            'WHEN' 'MATCHED' 'THEN' 'DELETE' whereClause?;
+mergeInsert:            'WHEN' 'NOT' 'MATCHED' 'THEN' 'INSERT' expr whereClause?;
+mergeUpdate:            'WHEN' 'MATCHED' 'THEN' 'UPDATE' setClause? unsetClause? whereClause?;
+mergeSource:            ((fromKeyspace ('AS'? alias)? useClause?)|('(' select ')' 'AS'? alias)|(expr ('AS'? alias)?));
+
+
+indexName:              identifier;
+indexRef:               indexRef indexUsing?;
+indexStmt:              (createPrimaryIndex|createIndex|dropPrimaryIndex|dropIndex|buildIndexes);
+indexUsing:             'USING' ('VIEW'|'GSI');
+indexWith:              'WITH' expr;
+
+    // POOL
+poolName:               identifier;
+
+    // Comments
+commit:                 'COMMIT' 'WORK'?;
+blockComment:           '/*' (text newline)* '*/';
+lineComment:            '--' (text newline);
+
+  // Datatypes
+
+    // Comparison Term
+comparisonTerm: expr (('IS' 'NOT'? ('NULL'|'MISSING'|'KNOWN'|'VALUED'))|(('='|'=='|'!='|'<>'|'>'|'>='|'<'|'<='|('NOT'? ('BETWEEN' expr 'AND'|'LIKE'))) expr));
+
+    // Alias
+alias:                  identifier;
+
+    // ID
+identifier:             (escapedIdentifier|unescapedIdentifier);
+escapedIdentifier:      '\'' chars '\'';
+UnescapedIdentifier:    [a-zA-Z_] ([$_a-zA-Z0-9])*;
+
+    // Varibles
+var:                    identifier;
+variable:               identifier;
+nameVar:                identifier;
+valVar:                 var;
+keyVar:                 var;
+
+    // Arrays
+array:                  '[' elements? ']';
+elements:               (expr|expr ',' elements);
+
+    // Objects
+object:                 '{' members? '}';
+members:                (pair|pair ',' members);
+
+    // Literals
+literal:                (string|number|'TRUE'|'FALSE'|'NULL'|'MISSING');
+literalValue:           (string|number|object|array|'TRUE'|'FALSE'|'NULL');
+
+    // Text
+string:                 '"' chars? '"';
+char:                   (UnicodeCharacter|('\\' ('\\'|'/'|'b'|'f'|'n'|'r'|'t'|('u' HexDigit HexDigit HexDigit HexDigit))));
+chars:                  (char|char chars?);
+UnicodeCharacter:       [\u0080-\ufffe];
+text:                           chars;  ///////////// This is my guess at what it is as 'text' was not in the github database
+// newline:                    ///// need to define this as well    
+
+    // Math
+arithmeticTerm:         ('-'|(expr ('+'|'-'|'*'|'/'|'%'))) expr;
+number:                 int frac? exp?;
+int:                    '-'? uint;
+uint:                   (Digit|(NonZeroDigit digits));
+Digit:                  [0-9];
+digits:                 Digit digits?;
+NonZeroDigit:           [1-9];
+HexDigit:               ([0-9]|[a-f]|[A-F]);
+frac:                   '.' digits;
+exp:                    e digits;
+e:                      (e|E) ('-'|'+');
+
+// Whitespace
+WS:                     [ \r\n\t]+ -> skip;
 
