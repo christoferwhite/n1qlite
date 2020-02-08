@@ -2,7 +2,7 @@
 grammar N1ql;
 // Parser Rules
 
-  // High level Phrase reconition
+  // High level Phrase recognition
 dropPrimaryIndex:       'DROP' 'PRIMARY' 'INDEX' 'ON' namedKeyspaceRef indexUsing?;
 lookupJoinPredicate:    'ON' 'PRIMARY'? 'KEYS' expr;
 namedBucketRef:         (poolName ':')? bucketName;
@@ -75,7 +75,9 @@ simpleCaseExpr:         'CASE' expr ('WHEN' expr 'THEN' expr)* ('ELSE' expr)? 'E
 
       // COLLECTION Expreressions
 collectionCond:         ('ANY'|'SOME'|'EVERY') (variable ('IN'|'WITHIN') expr) (variable ('IN'|'WITHIN') expr)* ('SATISFIES' cond) 'END';
-collectionExpr:         (existsExpr|inExpr|withinExpr|rangeCond|rangeXform);
+
+// collectionExpr:         (existsExpr|inExpr|withinExpr|rangeCond|rangeXform);
+collectionExpr:         (existsExpr|inExpr|withinExpr|rangeXform);
 
       // MISC Expressions
 mapExpr:                'MAP' (variable (',' variable)*) 'IN' (expr (',' expr)*) ('TO' expr)? ('WHEN' cond)? 'END';
@@ -84,15 +86,16 @@ inExpr:                 expr 'NOT'? 'IN' expr;
 arrayExpr:              'ARRAY' expr 'FOR' (variable('IN'|'WITHIN') expr) (',' variable('IN'|'WITHIN'))? ('WHEN' cond)? 'END';
 fieldExpr:              expr '.' (identifier|(escapedIdentifier ('|')?));
 firstExpr:              'FIRST' expr 'FOR'
-                          (variable ('IN'|WITHIN) expr)
-                          (',' variable ('IN'|WITHIN) expr)?
+                          (variable ('IN'|'WITHIN') expr)
+                          (',' variable ('IN'|'WITHIN') expr)?
                           ('WHEN' cond)? 'END';
 constructionExpr:       (object|array);
-collectionExpr:         (existsExpr|inExpr|withinExpr|rangeCond|rangeXform);
+
+// collectionExpr:         (existsExpr|inExpr|withinExpr|rangeCond|rangeXform);
 existsExpr:             'EXISTS' expr;
 elementExpr:            expr '[' expr ']';
 existentialExpr:        'EXISTS' '(' select ')';
-existsExpr:             'EXISTS' expr;
+// existsExpr:             'EXISTS' expr;
 nestedExpr:             (fieldExpr|elementExpr|sliceExpr);
 reduceExpr:             'REDUCE' (variable (',' variable)*) 'IN' (expr (',' expr)*) 'TO' expr ('WHEN' cond)? 'END';
 resultExpr:             (((path '.')? '*')|(expr('AS'? alias)?));
@@ -119,14 +122,14 @@ ctrl:                   (if|case|loop|break|continue|pass|return|deliver); // de
 
 if:                     mcond 'THEN' block ('ELSEIF' mcond 'THEN' block)* ('ELSE' block)? 'END';
 case:                   (fullCase|searchedCase);
-case:                   (fullCase|searchedCase);
+// case:                   (fullCase|searchedCase);
 concatenationTerm:      expr '||' expr;
-collectionPredicate:    ('ANY'|'ALL') cond 'OVER' expr ('AS'? alias)? (('OVER' subpath ('AS' alias)?)*)?; 
+collectionPredicate:    ('ANY'|'ALL') cond 'OVER' expr ('AS'? alias)? (('OVER' subpath ('AS' alias)?)+)?; 
 collectionXform:        (arrayExpr|firstExpr);
 loop:                   label? (while|for);
 break:                  'BREAK' labelName?;
 continue:               'CONTINUE' labelName?;
-comprehension:          '[' expr 'OVER' expr ('AS'? alias)? ('IF' expr)? (('OVER' subpath ('AS' alias)? ('IF' expr)?)*)? ']';
+comprehension:          '[' expr 'OVER' expr ('AS'? alias)? ('IF' expr)? (('OVER' subpath ('AS' alias)? ('IF' expr)?)+)? ']';
 pass:                   'PASS';
 return:                 'RETURN' (lexpr (',' lexpr));
 deliver:                'DELIVER' ('WHEN' commop 'THEN' block)* ('ELSE' block)? 'END';
@@ -134,25 +137,25 @@ deliver:                'DELIVER' ('WHEN' commop 'THEN' block)* ('ELSE' block)? 
 ddlStmt:                indexStmt;
 dmlStmt:                (insert|upsert|delete|update|merge);
 for:                    (forIter|forMap);
-  forIter:                'FOR' var 'IN' (mexper|cursor) 'DO' block 'END';
+forIter:                'FOR' var 'IN' (mexpr|cursor) 'DO' block 'END';
   forMap:                 'FOR' keyVar ',' valVar 'IN' mexpr 'DO' block 'END';
 delete:                 'DELETE' 'FROM' keyspaceRef useClause? whereClause? limitClause? returningClause?;
 execute:                'EXECUTE' mexpr ('USING' mexpr (',' mexpr)*)?;
 first:                  'FIRST' cursor;
 cursor:                 (query|execute);
-dataset:                path ('AS'? alias)? (('OVER' subpath ('AS'? alias)?)*)?;
+dataset:                path ('AS'? alias)? (('OVER' subpath ('AS'? alias)?)+)?;
 start:                  'START' 'TRANSACTION';
 while:                  'WHILE' mcond 'DO' block 'END';
 query:                  (select|dmlStmt);
   subquery:               select;
 label:                  labelName ':';
-  lableName:            identifier;
+labelName:              identifier;
 function:               functionName '(' ('DISTINCT'? (((path '.')? '*')|(expr (',' expr))))?;
   functionName:         identifier;
-  functionCall:         functionName '(' ('*'|((expr (',' expr)*)|'DISTINCT')?)?;
+  functionCall:         functionName '(' ('*'|((expr (',' expr)*)|'DISTINCT'))?;
 fullpath:               (poolName ':')? path;
 commop:                 (sendop|rcvop);
-  sendop:                 var '<-' mexper;
+  sendop:                 var '<-' mexpr;
   rcvop:                  var (',' var)? (':='|'::=') rcvexpr;
 rollback:               'ROLLBACK' 'WORK'?;
 truncate:               'TRUNCATE' keyspaceRef;
@@ -190,14 +193,16 @@ begin:                  'BEGIN' block 'END';
 block:                  terminatedStmt;
 terminatedStmt:         stmt (';'|newline);
 transactionStmt:        (start|commit|rollback);
-stmt:                   (begin|ded|init|assign|unset|sendop|ctrl|lexpr);
+//stmt:                   (begin|ded|init|assign|unset|sendop|ctrl|lexpr);
+stmt:                   (begin|init|assign|unset|sendop|ctrl|lexpr);
 
     // From
 fromKeyspace:           (namespace ':')? keyspace;
 fromPath:               (namespace ':')? path;
 fromSelectCore:         fromClause letClause? whereClause? groupByClause? selectClause;
 fromSelect:             fromClause letClause? whereClause? groupByClause? selectClause;
-fromTerm:               ((fromKeyspace ('AS'? alias)? useClause?)|('(' select ')' 'AS'? alias)|(expr ('AS' alias)?)|(fromTerm (joinClause|nestClause|unnestClause)));
+// fromTerm:               ((fromKeyspace ('AS'? alias)? useClause?)|('(' select ')' 'AS'? alias)|(expr ('AS' alias)?)|(fromTerm (joinClause|nestClause|unnestClause)));
+fromTerm:               ((fromKeyspace ('AS'? alias)? useClause?)|('(' select ')' 'AS'? alias)|(expr ('AS' alias)?)|(fromTerm (joinClause|nestClause)));
 
     // Select
 select:                 (selectTerm ('ALL'? setOp selectTerm)*) orderByClause? limitClause? offsetClause?;
@@ -215,7 +220,8 @@ insertValues:           ('(' 'PRIMARY'? 'KEY' ',' 'VALUE' ')')? valuesClause;
 
     // Window
 windowClause:           windowPartitionClause? (windowOrderClause (windowFrameClause (windowFrameExclusion)?)?)?;
-windowFrameClause:      ('ROWS'|'RANGE'|'GROUPS') (('UNBOUNDED' 'PRECEDING')|('CURRENT' 'ROW')|(valexpr 'FOLLOWING')|('BETWEEN'(('UNBOUNDED' 'PRECEDING')|('CURRENT' 'ROW')|(valexpr 'FOLLOWING')|('BETWEEN' (('UNBOUNDED' 'PRECEDING')|('CURRENT' 'ROW')|(valexpr ('PRECEDING'|'FOLLOWING'))) 'AND' (('UNBOUNDED' 'FOLLOWING')|('CURRENT' 'ROW')|(valexpr ('PRECEDING'|'FOLLOWING')))))));
+// windowFrameClause:      ('ROWS'|'RANGE'|'GROUPS') (('UNBOUNDED' 'PRECEDING')|('CURRENT' 'ROW')|(valexpr 'FOLLOWING')|('BETWEEN'(('UNBOUNDED' 'PRECEDING')|('CURRENT' 'ROW')|(valexpr 'FOLLOWING')|('BETWEEN' (('UNBOUNDED' 'PRECEDING')|('CURRENT' 'ROW')|(valexpr ('PRECEDING'|'FOLLOWING'))) 'AND' (('UNBOUNDED' 'FOLLOWING')|('CURRENT' 'ROW')|(valexpr ('PRECEDING'|'FOLLOWING')))))));
+windowFrameClause:      ('ROWS'|'RANGE'|'GROUPS') (('UNBOUNDED' 'PRECEDING')|('CURRENT' 'ROW')|('BETWEEN'(('UNBOUNDED' 'PRECEDING')|('CURRENT' 'ROW')|('BETWEEN' (('UNBOUNDED' 'PRECEDING')|('CURRENT' 'ROW')) 'AND' (('UNBOUNDED' 'FOLLOWING')|('CURRENT' 'ROW'))))));
 windowFrameExclusion:   'EXECUTE' ('CURRENT' 'ROW'|'GROUP'|'TIES'|'NO' 'OTHERS');
 windowFunctionArguments:(aggregateQualifier? expr (',' expr (',' expr)?)?)?;
 windowFunctionOptions:  nthvalFrom? nullsTreatment?;
@@ -252,7 +258,8 @@ mergeSource:            ((fromKeyspace ('AS'? alias)? useClause?)|('(' select ')
 
 
 indexName:              identifier;
-indexRef:               indexRef indexUsing?;
+// indexRef:               indexRef indexUsing?;
+indexRef:               indexUsing indexRef?;
 indexStmt:              (createPrimaryIndex|createIndex|dropPrimaryIndex|dropIndex|buildIndexes);
 indexUsing:             'USING' ('VIEW'|'GSI');
 indexWith:              'WITH' expr;
@@ -274,11 +281,11 @@ comparisonTerm: expr (('IS' 'NOT'? ('NULL'|'MISSING'|'KNOWN'|'VALUED'))|(('='|'=
 alias:                  identifier;
 
     // ID
-identifier:             (escapedIdentifier|unescapedIdentifier);
+identifier:             (escapedIdentifier|UnescapedIdentifier);
 escapedIdentifier:      '\'' chars '\'';
 UnescapedIdentifier:    [a-zA-Z_] ([$_a-zA-Z0-9])*;
 
-    // Varibles
+    // Variables
 var:                    identifier;
 variable:               identifier;
 nameVar:                identifier;
@@ -303,7 +310,7 @@ char:                   (UnicodeCharacter|('\\' ('\\'|'/'|'b'|'f'|'n'|'r'|'t'|('
 chars:                  (char|char chars?);
 UnicodeCharacter:       [\u0080-\ufffe];
 text:                           chars;  ///////////// This is my guess at what it is as 'text' was not in the github database
-// newline:                    ///// need to define this as well    
+newline:                ('\r\n'|'\n'|'\r');    
 
     // Math
 arithmeticTerm:         ('-'|(expr ('+'|'-'|'*'|'/'|'%'))) expr;
@@ -316,7 +323,7 @@ NonZeroDigit:           [1-9];
 HexDigit:               ([0-9]|[a-f]|[A-F]);
 frac:                   '.' digits;
 exp:                    e digits;
-e:                      (e|E) ('-'|'+');
+e:                      ('e'|'E') ('-'|'+');
 
 // Whitespace
 WS:                     [ \r\n\t]+ -> skip;

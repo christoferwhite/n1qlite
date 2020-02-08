@@ -16,8 +16,20 @@ public class LexerTest {
 		assertTreeEquals( parse("   12345").pNumber(), "12345" );
 		assertTreeEquals( parse("   12345   ").pNumber(), "12345" );
         assertTreeEquals( parse("12.345").pNumber(), "12.345");
-        assertTreeEquals( parse("-35.260E-5").pNumber(), "-35.260E-5");
+	}
+	
+	@Test
+    public void number2() {
+        assertTreeEquals( parse("35.260E-5").pNumber(), "35.260E-5");
     }
+	
+	@Test
+	public void booleanTest() {
+		assertTreeEquals( parse("true").pBoolean(), "true");
+		assertTreeEquals( parse("TRUE").pBoolean(), "TRUE");
+		assertTreeEquals( parse("false").pBoolean(), "false");
+		assertTreeEquals( parse("FALSE").pBoolean(), "FALSE");
+	}
 	
 	     // JDW: this is better, but not working yet
 //	@Test
