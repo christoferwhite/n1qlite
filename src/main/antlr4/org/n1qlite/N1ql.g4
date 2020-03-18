@@ -53,7 +53,7 @@ rcvexpr:                '<-' mexpr;  // might be left recursion error
     // Basic Expressions
 expr:                   literal
                           |identifier
-                          |nestedExpr
+//                          |nestedExpr
                           |caseExpr
                           |logicalTerm
                           |comparisonTerm
@@ -77,14 +77,14 @@ simpleCaseExpr:         'CASE' expr ('WHEN' expr 'THEN' expr)* ('ELSE' expr)? 'E
 collectionCond:         ('ANY'|'SOME'|'EVERY') (variable ('IN'|'WITHIN') expr) (variable ('IN'|'WITHIN') expr)* ('SATISFIES' cond) 'END';
 
 // collectionExpr:         (existsExpr|inExpr|withinExpr|rangeCond|rangeXform);
-collectionExpr:         (existsExpr|inExpr|withinExpr|rangeXform);
+collectionExpr:         (existsExpr|inExpr| /*withinExpr| */ rangeXform);
 
       // MISC Expressions
 mapExpr:                'MAP' (variable (',' variable)*) 'IN' (expr (',' expr)*) ('TO' expr)? ('WHEN' cond)? 'END';
 nameExpr:               expr;
 inExpr:                 expr 'NOT'? 'IN' expr;
 arrayExpr:              'ARRAY' expr 'FOR' (variable('IN'|'WITHIN') expr) (',' variable('IN'|'WITHIN'))? ('WHEN' cond)? 'END';
-fieldExpr:              expr '.' (identifier|(escapedIdentifier ('|')?));
+fieldExpr:              (identifier|(escapedIdentifier ('|')?)) '.' expr;
 firstExpr:              'FIRST' expr 'FOR'
                           (variable ('IN'|'WITHIN') expr)
                           (',' variable ('IN'|'WITHIN') expr)?
@@ -96,12 +96,12 @@ existsExpr:             'EXISTS' expr;
 elementExpr:            expr '[' expr ']';
 existentialExpr:        'EXISTS' '(' select ')';
 // existsExpr:             'EXISTS' expr;
-nestedExpr:             (fieldExpr|elementExpr|sliceExpr);
+// nestedExpr:             (fieldExpr|elementExpr|sliceExpr);
 reduceExpr:             'REDUCE' (variable (',' variable)*) 'IN' (expr (',' expr)*) 'TO' expr ('WHEN' cond)? 'END';
 resultExpr:             (((path '.')? '*')|(expr('AS'? alias)?));
 sliceExpr:              expr '[' expr ':' expr? ']';
 subqueryExpr:           '(' select ')';
-withinExpr:             expr 'NOT'? 'WITHIN' expr;
+// withinExpr:             expr 'NOT'? 'WITHIN' expr;
 
 
   // Functions
